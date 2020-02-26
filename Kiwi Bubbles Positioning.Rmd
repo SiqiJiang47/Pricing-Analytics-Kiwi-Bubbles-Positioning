@@ -1,0 +1,689 @@
+---
+title: "Kiwi Bubbles Positioning"
+author: "Siqi Jiang"
+date: "2/26/2020"
+output: html_document
+---
+## Abstract
+
+Through his project, I will demonstrate how a business can utilize choice data and demographic data to understand customer preferences and maximize profit.I will conduct product segmentations and substitution by taking competitive pricing policies and product line pricing into consideration. 
+This project includes 3 parts: 
+1) logit model without segmentation 
+2) logit model with segmentation
+3) understanding strategic responses when rival lowers its price
+
+## Story Background 
+
+There are only 2 beverage companies (Kiwi and Mango) in the market. Each one of them sells a single product: Kiwi Regular(KR) and Mango Bubble(MB). Now, Kiwi wants to launch a new product: Kiwi Bubble(KB). Our goal is to make recommendations on whether Kiwi should launch Kiwi Bubble. If launch, what prices should the firm set for its 2 products in order to maximize its profit. Given that the unit cost of all three products is $0.5, the market size is 1000 customers.
+
+## Part One: Multinomial Logit Model without Segmentation 
+### Step Zero: Clean Data and Preview of Functions 
+```{r}
+#LOAD packages
+library("dummies")
+library("AER")
+library("plotly")
+library('RColorBrewer')
+library("data.table")
+library("mlogit")
+library("gmnl")
+####Part One --- Logit Model without segmentation#####
+#Estimate a multinomial logit model using gmnl and mlogit
+#Read data
+#getwd()
+data=fread("2020 Spring A/MKT440 Pricing Analytics/project 2/kiwi_bubbles_P2.csv",stringsAsFactors = F)
+#Load demographic data
+demo=fread("2020 Spring A/MKT440 Pricing Analytics/project 2/demo_P2.csv",stringsAsFactors = F)
+```
+
+```{r}
+#Number of individuals
+#Number of individuals
+n = 1000
+#Drop observations with stockout
+
+data=data[!(data$price.KB==99),]
+data=data[!(data$price.KR==99),]
+data=data[!(data$price.MB==99),]
+
+#Calculate elasticities using average price
+avgPriceKB = mean(data$price.KB) #1.381332
+avgPriceKR = mean(data$price.KR) #1.378087
+avgPriceMB = mean(data$price.MB) #1.345585
+avgPriceAll=c(avgPriceKB,avgPriceKR,avgPriceMB)
+```
+
+### Estimate multinomial logit model
+
+```{r}
+#Estimate multinomial logit model
+#Convert data using 'mlogit.data'
+mlogitdata = mlogit.data(data, id = 'id', varying = 4:7,choice = 'choice', shape = 'wide')
+#Run MLE
+mle = gmnl(choice ~ price, data = mlogitdata)
+summary(mle) 
+#beta0KB = 4.25316, beta0KR = 4.36240, beta0MB = 4.20440, beta1 = -3.73793 
+#beta0 of three products are similar, meaning they are selected equally frequently
+beta1=-3.73793
+beta0KB = 4.25316
+beta0KR = 4.36240
+beta0MB = 4.20440
+```
+
+```{r}
+#Functions:
+#Demand:
+#two proudcts:
+para=c(beta0KB,beta0KR,beta0MB,beta1)
+
+demand2=function(price1,price2,para){  #2 products, para contain all 4 numbers
+  prob=exp(para[1]+para[4]*price1)/(1+exp(para[1]+para[4]*price1)+exp(para[2]+para[4]*price2))
+  return(prob)
+}
+
+#three products:
+
+demand1=function(priceKB,priceKR,priceMB,para){
+  prob=exp(para[1]+para[4]*priceKB)/(1+exp(para[1]+para[4]*priceKB)+exp(para[2]+para[4]*priceKR)+exp(para[3]+para[4]*priceMB))
+  return(prob)
+}
+
+#agg_choice for two products
+agg_choice2=function(priceKB,priceKR, own, rival) {  #2 products
+  m=c(own+1,rival+1,5)
+  agg_choice=seg.share[1]*demand2(priceKB,priceKR,as.numeric(coef.est[1,m]))+
+    seg.share[2]*demand2(priceKB,priceKR,as.numeric(coef.est[2,m]))+
+    seg.share[3]*demand2(priceKB,priceKR,as.numeric(coef.est[3,m]))+
+    seg.share[4]*demand2(priceKB,priceKR,as.numeric(coef.est[4,m]))+
+    seg.share[5]*demand2(priceKB,priceKR,as.numeric(coef.est[5,m]))+ 
+    seg.share[6]*demand2(priceKB,priceKR,as.numeric(coef.est[6,m]))+
+    seg.share[7]*demand2(priceKB,priceKR,as.numeric(coef.est[7,m]))+
+    seg.share[8]*demand2(priceKB,priceKR,as.numeric(coef.est[8,m]))+
+    seg.share[9]*demand2(priceKB,priceKR,as.numeric(coef.est[9,m]))
+  return(agg_choice)
+}
+
+#agg_choice for three products
+
+
+agg_choice=function(priceKB,priceKR,priceMB) {
+  
+  agg_choice=seg.share[1]*demand1(priceKB,priceKR,priceMB,as.numeric(coef.est[1,2:5]))+
+    seg.share[2]*demand1(priceKB,priceKR,priceMB,as.numeric(coef.est[2,2:5]))+
+    seg.share[3]*demand1(priceKB,priceKR,priceMB,as.numeric(coef.est[3,2:5]))+
+    seg.share[4]*demand1(priceKB,priceKR,priceMB,as.numeric(coef.est[4,2:5]))+
+    seg.share[5]*demand1(priceKB,priceKR,priceMB,as.numeric(coef.est[5,2:5]))+ 
+    seg.share[6]*demand1(priceKB,priceKR,priceMB,as.numeric(coef.est[6,2:5]))+
+    seg.share[7]*demand1(priceKB,priceKR,priceMB,as.numeric(coef.est[7,2:5]))+
+    seg.share[8]*demand1(priceKB,priceKR,priceMB,as.numeric(coef.est[8,2:5]))+
+    seg.share[9]*demand1(priceKB,priceKR,priceMB,as.numeric(coef.est[9,2:5]))
+  
+  return(agg_choice)
+}
+
+#sum demand of KB+KR (based on 3 products environment)
+demand_KB_KR=function(priceKB,priceKR,priceMB,para){
+  probKB=exp(para[1]+para[4]*priceKB)/(1+exp(para[1]+para[4]*priceKB)+exp(para[2]+para[4]*priceKR)+exp(para[3]+para[4]*priceMB))
+  probKR=exp(para[2]+para[4]*priceKR)/(1+exp(para[1]+para[4]*priceKB)+exp(para[2]+para[4]*priceKR)+exp(para[3]+para[4]*priceMB))
+  return(cbind(probKB,probKR))
+}
+demand_KB_KR_MB=function(priceKB,priceKR,priceMB,para){
+  probKB=exp(para[1]+para[4]*priceKB)/(1+exp(para[1]+para[4]*priceKB)+exp(para[2]+para[4]*priceKR)+exp(para[3]+para[4]*priceMB))
+  probKR=exp(para[2]+para[4]*priceKR)/(1+exp(para[1]+para[4]*priceKB)+exp(para[2]+para[4]*priceKR)+exp(para[3]+para[4]*priceMB))
+  probMB=exp(para[3]+para[4]*priceKR)/(1+exp(para[1]+para[4]*priceKB)+exp(para[2]+para[4]*priceKR)+exp(para[3]+para[4]*priceMB))
+  return(cbind(probKB,probKR,probMB))
+}
+#sum profit of KB+KR (based on 3 products environment)
+profit_KB_KR=function(priceKB,priceKR, priceMB,para){
+  profitKB=1000*(demand_KB_KR(priceKB,priceKR, priceMB,para)[,1]*(priceKB-0.5))
+  profitKR=1000*(demand_KB_KR(priceKB,priceKR, priceMB,para)[,2]*(priceKR-0.5))
+  return(cbind(profitKB,profitKR))
+}
+
+```
+
+
+
+```{r }
+
+```
+
+### Step Two: Calculate Own- and Cross- Elasticities
+
+```{r cars}
+avgPriceKB = mean(data$price.KB) #1.381332
+avgPriceKR = mean(data$price.KR) #1.378087
+avgPriceMB = mean(data$price.MB) #1.345585
+avgPriceAll=c(avgPriceKB,avgPriceKR,avgPriceMB)
+
+#KB+KR+MB
+demandKB = demand1(avgPriceKB,avgPriceKR,avgPriceMB,para) 
+demandKR = demand1(avgPriceKR,avgPriceKB,avgPriceMB,para[c(2,1,3,4)])  
+demandMB = demand1(avgPriceMB,avgPriceKB,avgPriceKR,para[c(3,1,2,4)]) 
+#Own-price elasticity of KB
+ownElasKB = -(beta1)*avgPriceKB*(1-demandKB) #4.222673
+#Own-price elasticity of KR
+ownElasKR = -(beta1)*avgPriceKR*(1-demandKR) #4.143605
+#Own-price elasticity of MB 
+ownElasMB = -(beta1)*avgPriceMB*(1-demandMB) #4.072252
+
+#Cross-elasticities
+crossElasKR = -(beta1)*avgPriceKR*demandKR #1.012787 -> canibalization
+crossElasMB = -(beta1)*avgPriceMB*demandMB #0.9574505
+crossElasKB = -(beta1)*avgPriceKB*demandKB #0.9188917
+
+#create a data frame that includes all the elasticities
+elas_KB_KR_MB <- data.frame("Product"=c("KB","KR","MB"), "Own Elasticity"=c(ownElasKB,ownElasKR,ownElasMB), 
+                            "Cross Price Elasticity"=c(crossElasKB,crossElasKR,crossElasMB))
+elas_KB_KR_MB
+
+```
+Insights: We can see from the data frame below that all the 3 products KB, KR and MB are price elastic as their own elasticities > 1.
+
+If we solely consider the cross elasticities when making business decisions, launching KB might not be a smart action since KR and MB are close substitutes of each other, and KR is a close substitute of KB which implies a risk of cannibalization.
+
+
+### Step Three: Profit Maximization and Optimal Price 
+
+Calculate optimal prices for KB and KR to maximize the profit given Mango price is priceMB = 1.43.
+```{r}
+#Unit cost
+uc=0.5
+priceMB=1.43
+
+demand_KB_KR=function(priceKB,priceKR,priceMB,para){
+  probKB=exp(para[1]+para[4]*priceKB)/(1+exp(para[1]+para[4]*priceKB)+exp(para[2]+para[4]*priceKR)+exp(para[3]+para[4]*priceMB))
+  probKR=exp(para[2]+para[4]*priceKR)/(1+exp(para[1]+para[4]*priceKB)+exp(para[2]+para[4]*priceKR)+exp(para[3]+para[4]*priceMB))
+  return(cbind(probKB,probKR))
+}
+
+#define a profit function 
+profit_KB_KR=function(priceKB,priceKR, priceMB,para){
+  profitKB=1000*(demand_KB_KR(priceKB,priceKR, priceMB,para)[,1]*(priceKB-0.5))
+  profitKR=1000*(demand_KB_KR(priceKB,priceKR, priceMB,para)[,2]*(priceKR-0.5))
+  return(cbind(profitKB,profitKR))
+}
+
+#Choose space of prices to search for the optimal price over
+#Because we search over two dimensions, create complete combination of the two prices
+#Choose space of prices to search for the optimal price over
+aux=seq(1,3,0.01)
+#Because we search over two dimensions, create complete combination 
+#of the two prices
+pricespace=expand.grid(aux,aux)
+#Compute profit at each realization of this price space.
+#I write for-loop. While there are ways to get this done in a vectorized way,
+#this for-loop code probably helps some in project 2.
+#Calculate profit
+
+#At each iteration of the loop, I take one realization of [P^KB,P^KR] pair and evaluate
+#profit at that realization.
+profitmat=matrix(0L,nrow(pricespace),1)
+
+for (i in 1:nrow(pricespace)){
+  profitmat[i]=sum(profit_KB_KR(pricespace[i,1],pricespace[i,2],1.43,para))  
+}
+
+#Visualize
+xaxis=list(title="P^{KB}")
+yaxis=list(autorange = "reversed",title="P^{KR}")
+zaxis=list(title="Profit")
+p=plot_ly(x=pricespace[,1],y=pricespace[,2],z=as.numeric(profitmat),
+          type="scatter3d",mode="markers",
+          marker = list(color = as.numeric(profitmat), colorscale = c('#FFE1A1', '#683531'), showscale = TRUE))%>%
+  layout(scene=list(xaxis=xaxis,yaxis=yaxis,zaxis=zaxis))%>%
+  config(mathjax = 'cdn')
+p
+
+
+```
+
+```{r}
+#calculate max profit and optimal prices
+max(profitmat) #393.408; optimal price for KB is 1.16, optimal price for KR is 1.16
+```
+
+```{r}
+pricespace[profitmat==max(profitmat)]
+```
+
+```{r}
+#create a data frame that contains optimal price and max profit information
+infoTable = data.frame(maxProfit = max(profitmat), 
+                       priceKR = pricespace[profitmat==max(profitmat)][1],
+                       priceKB = pricespace[profitmat==max(profitmat)][2])
+infoTable
+```
+
+## Part Two: Multinomial Logit Model with Segmentation 
+### Step One: Select the Number of segments
+In this part, we are trying to study segmentation and understand how to position based on segmentation results. We use K-means to cluster customers and then decide a proper number for segments based on cluster analysis.
+
+Insights: We decide to use 9 segments (including an additional segment for those who don’t fit in any cluster). As we can see from the segList shown above, when there are 10 segments, one of the segments contains less than 4 people (283 *0.014 = 3.962), which makes our segmentation less reliable. Therefore, we took a step back, and chose 9 as the number of our segments
+```{r}
+#Clustering
+#number of individuals in demo data
+N=283
+set.seed(0)
+#create a copy of original data
+data2 = data
+#write a for-loop to test what is the reasonable number of segments
+segList = list()
+
+for(i in 1:18){
+  demo_cluster = kmeans(x=demo[, 2:18], centers = i, nstart = 1000)
+  data2=data
+  
+  # now combine cluster identity into the raw data
+  cluster_id = data.frame(id = demo$id)
+  cluster_id$cluster = demo_cluster$cluster
+  data2 = merge(data2, cluster_id, by = "id", all.x = T)
+  
+  # for those who don't fit in any cluster, group them into one additional cluster
+  data2$cluster[is.na(data2$cluster)] = i+1
+  
+  #segment share
+  seg.share = c( table(demo_cluster$cluster),N - sum(table(demo_cluster$cluster))) / N
+  
+  #input seg.share into segTable
+  segList[[i]] = seg.share
+  
+  #recover original data
+  data2 = data2[,1:8]
+}
+segList
+```
+
+Now, we estimate separate demand models for each of the 9 segments.
+
+```{r}
+demo_cluster = kmeans(x=demo[, 2:18], centers = 8, nstart = 1000)
+summary(demo_cluster)
+```
+
+```{r}
+# now combine cluster identity into the raw data
+cluster_id = data.frame(id = demo$id)
+cluster_id$cluster = demo_cluster$cluster
+data = merge(data, cluster_id, by = "id", all.x = T)
+
+# for those who don't fit in any cluster, group them into one additional cluster
+data$cluster[is.na(data$cluster)] = 9
+
+#segment share
+seg.share = c( table(demo_cluster$cluster),N - sum(table(demo_cluster$cluster))) / N
+
+#Estimate multinomial logit model separately for each segment
+#store the coefficients
+coef.est = data.frame(segment = 1:9, intercept.KB = NA, intercept.KR = NA, 
+                      intercept.MB = NA, price.coef = NA) 
+
+for (seg in 1:9) {
+  # During each loop, pick subset of data of consumers from each segment.
+  data.sub = subset(data, cluster == seg)
+  
+  #Using that data, the rest remains the same.
+  mlogitdata = mlogit.data(data.sub,id="id",varying=4:7,choice="choice",shape="wide")
+  
+  #Run MLE.
+  mle = gmnl(choice ~  price, data = mlogitdata)
+  mle
+  #Store the outcome in the coef.est matrix.
+  coef.est[seg, 2:5] = mle$coefficients
+}
+coef.est
+```
+
+### Step Two: Compare Elasticities Between with Seg and Non-seg
+
+Calculate own- and cross-elasticities with segmentation.
+
+```{r}
+demand1=function(priceKB,priceKR,priceMB,para){
+  probKB=exp(para[1]+para[4]*priceKB)/(1+exp(para[1]+para[4]*priceKB)+exp(para[2]+para[4]*priceKR)+exp(para[3]+para[4]*priceMB))
+  probKR=exp(para[2]+para[4]*priceKR)/(1+exp(para[1]+para[4]*priceKB)+exp(para[2]+para[4]*priceKR)+exp(para[3]+para[4]*priceMB))
+  probMB=exp(para[3]+para[4]*priceKR)/(1+exp(para[1]+para[4]*priceKB)+exp(para[2]+para[4]*priceKR)+exp(para[3]+para[4]*priceMB))
+  return(cbind(probKB,probKR,probMB))
+}
+agg_choice=function(priceKB,priceKR,priceMB) {  #3 products segment
+  
+  agg_choice=seg.share[1]*demand1(priceKB,priceKR,priceMB,as.numeric(coef.est[1,2:5]))+
+    seg.share[2]*demand1(priceKB,priceKR,priceMB,as.numeric(coef.est[2,2:5]))+
+    seg.share[3]*demand1(priceKB,priceKR,priceMB,as.numeric(coef.est[3,2:5]))+
+    seg.share[4]*demand1(priceKB,priceKR,priceMB,as.numeric(coef.est[4,2:5]))+
+    seg.share[5]*demand1(priceKB,priceKR,priceMB,as.numeric(coef.est[5,2:5]))+ 
+    seg.share[6]*demand1(priceKB,priceKR,priceMB,as.numeric(coef.est[6,2:5]))+
+    seg.share[7]*demand1(priceKB,priceKR,priceMB,as.numeric(coef.est[7,2:5]))+
+    seg.share[8]*demand1(priceKB,priceKR,priceMB,as.numeric(coef.est[8,2:5]))+
+    seg.share[9]*demand1(priceKB,priceKR,priceMB,as.numeric(coef.est[9,2:5]))
+  return(agg_choice)
+}
+
+avgPriceVec=list()
+for (i in 1:3){
+  avgPriceKB = mean(data$price.KB[data$cluster==i]) 
+  avgPriceKR = mean(data$price.KR[data$cluster==i]) 
+  avgPriceMB = mean(data$price.MB[data$cluster==i]) 
+  avgPriceVec[[i]]=c(avgPriceKB,avgPriceKR,avgPriceMB)
+}
+###aggregate_choice and demand#########
+
+para2=c(beta0KR,beta0MB,beta1)
+demand2=function(price1,price2,para2){  #2 products, para contains 3 #s, func SAME NAME
+  prob1=exp(para2[1]+para2[3]*price1)/(1+exp(para2[1]+para2[3]*price1)+exp(para2[2]+para2[3]*price2))
+  prob2=exp(para2[2]+para2[3]*price1)/(1+exp(para2[1]+para2[3]*price1)+exp(para2[2]+para2[3]*price2))
+  return(cbind(prob1,prob2))
+}
+
+
+agg_choice2=function(priceKB,priceKR, own, rival) {  #2 products segment
+  m=c(own+1,rival+1,5)
+  agg_choice=seg.share[1]*demand2(priceKB,priceKR,as.numeric(coef.est[1,m]))+
+    seg.share[2]*demand2(priceKB,priceKR,as.numeric(coef.est[2,m]))+
+    seg.share[3]*demand2(priceKB,priceKR,as.numeric(coef.est[3,m]))+
+    seg.share[4]*demand2(priceKB,priceKR,as.numeric(coef.est[4,m]))+
+    seg.share[5]*demand2(priceKB,priceKR,as.numeric(coef.est[5,m]))+ 
+    seg.share[6]*demand2(priceKB,priceKR,as.numeric(coef.est[6,m]))+
+    seg.share[7]*demand2(priceKB,priceKR,as.numeric(coef.est[7,m]))+
+    seg.share[8]*demand2(priceKB,priceKR,as.numeric(coef.est[8,m]))+
+    seg.share[9]*demand2(priceKB,priceKR,as.numeric(coef.est[9,m]))
+  return(agg_choice)
+}
+
+#own elasticity 
+elasticity_own=function(avgPriceAll,own){
+  coef2=c(1,2,3)[c(1,2,3)!=own][1]
+  coef3=c(1,2,3)[c(1,2,3)!=own][2]
+  agg_choice=agg_choice(avgPriceAll[own],avgPriceAll[coef2],avgPriceAll[coef3])
+  agg_choicenew=agg_choice(avgPriceAll[own]*1.01,avgPriceAll[coef2],avgPriceAll[coef3])
+  (agg_choicenew-agg_choice)/agg_choice
+  
+} 
+KB4=(elasticity_own(avgPriceAll,1)[1])*-100 #KB  -0.04392695 
+KR4=(elasticity_own(avgPriceAll,2)[1])*-100 #KR   -0.04356302 
+MB4=(elasticity_own(avgPriceAll,3)[1])*-100 #MB  -0.04112575
+
+Own_elas_KB_KR_MB <- data.frame("Product"=c("KB","KR","MB"), "Own Elasticity"=c(KB4,KR4,MB4))
+Own_elas_KB_KR_MB 
+
+```
+
+
+Insights: With segmentation, the cross elasticities that KR and KB have on each other increased, meaning that KR and MB have become each other’s closer substitute compared to the non-segmentation case. In addition, MB has become a close substitute of KB (compared with the non-segmentation case that KR is the close substitute of KB), which implies that segmentation has helped to mitigate the risk of cannibalization between KB and KR.
+
+```{r}
+#cross elasticity 
+elasticity_cross=function(avgPriceAll,own){
+  e=vector()
+  coef2=c(1,2,3)[c(1,2,3)!=own][1]
+  coef3=c(1,2,3)[c(1,2,3)!=own][2]
+  agg_choice=agg_choice(avgPriceAll[own],avgPriceAll[coef2],avgPriceAll[coef3])[1]
+  agg_choicenew1=agg_choice(avgPriceAll[own],avgPriceAll[coef2]*1.01,avgPriceAll[coef3])[1]
+  agg_choicenew2=agg_choice(avgPriceAll[own],avgPriceAll[coef2],avgPriceAll[coef3]*1.01)[1]
+  
+  e=append(e, (agg_choicenew1-agg_choice)/agg_choice)
+  e=append(e, (agg_choicenew2-agg_choice)/agg_choice)
+  e
+  
+} 
+Cros_KB_KR_MB=(elasticity_cross(avgPriceAll, 1))*100  
+Cros_KB_KR_MB
+```
+
+```{r}
+Cros_KR_KB_MB=(elasticity_cross(avgPriceAll, 2))*100 
+Cros_KR_KB_MB
+```
+
+```{r}
+Cros_MB_KB_KR=(elasticity_cross(avgPriceAll, 3))*100  
+Cros_MB_KB_KR
+```
+
+### Step Three: KB Positioning
+Insights: As we took the average of the difference between intercept.KB and intercept.KR and between intercept.KB and intercept.MB across segments, we can see that the absolute value of difference between MB and KB is smaller than that between KR and KB (0.0117 < 0.1067). This result explains the insight we get from the substitution pattern that MB is a closer substitute of KB compared to KR.
+
+For segment 4, 6, 7, 8, the intercept.KR is bigger than intercept.KB, meaning that for these 4 groups, KR is more appealing to them than KB. Therefore, the firm should sell KR to segment 4, 6, 7, 8. For the rest of the segments (1, 2, 3, 5, 9), the intercept.KB is bigger than intercept.KR, meaning that KB is more appealing to these 5 segments than KR. Therefore, the firm should sell KB to segment 1, 2, 3, 5, 9.
+```{r}
+popularityCompare = data.frame(segments = 1:9, 
+                               differKB_KR = coef.est$intercept.KB-coef.est$intercept.KR, 
+                               differKB_MB = coef.est$intercept.KB-coef.est$intercept.MB,
+                               differMB_KR = coef.est$intercept.MB-coef.est$intercept.KR)
+popularityCompare
+```
+
+
+```{r}
+differCompare = data.frame(avg_differKB_KR=mean(popularityCompare$differKB_KR),
+                           avg_differKB_MB=mean(popularityCompare$differKB_MB))
+differCompare
+```
+
+```{r}
+#Scatterplot of parameters - beta_0^{KB}-beta_0^{KR} against beta_1
+plot(popularityCompare$differKB_KR, coef.est[,5], 
+     main = ("Preference Comparison between KB and KR"),
+     xlab="Preference of KB - Preference of KR",ylab=("Price Sensitivity"),
+     xlim=c(-1.5,2),ylim=c(-6,-1),
+     type='n')
+points(popularityCompare$differKB_KR[4],coef.est$price.coef[4],cex=20*seg.share[4],col='red',pch=16)
+points(popularityCompare$differKB_KR[6],coef.est$price.coef[6],cex=20*seg.share[6],col='red',pch=16)
+points(popularityCompare$differKB_KR[7],coef.est$price.coef[7],cex=20*seg.share[7],col='red',pch=16)
+points(popularityCompare$differKB_KR[8],coef.est$price.coef[8],cex=20*seg.share[8],col='red',pch=16)
+points(popularityCompare$differKB_KR[1],coef.est$price.coef[1],cex=20*seg.share[1],col='blue',pch=16)
+points(popularityCompare$differKB_KR[3],coef.est$price.coef[3],cex=20*seg.share[3],col='blue',pch=16)
+points(popularityCompare$differKB_KR[5],coef.est$price.coef[5],cex=20*seg.share[5],col='blue',pch=16)
+points(popularityCompare$differKB_KR[2],coef.est$price.coef[2],cex=20*seg.share[2],col='blue',pch=16)
+points(popularityCompare$differKB_KR[9],coef.est$price.coef[9],cex=20*seg.share[9],col='blue',pch=16)
+```
+
+The blue points represent the segments that prefer KB more than KR, and they are less price sensitive. The red points represent the segments that prefer KR more than KB, and they are more highly price sensitive. The number of segments that prefer KB are the same with that prefer KR.
+
+
+If we look at the two plots together, we can know that those who prefer KB between KB and KR are also the same people who prefer MB between KR and MB. We call these people the “bubble people”. It means that these segments do not necessarily prefer one brand over another. They simply prefer beverages with bubbles.
+
+
+```{r}
+#Scatterplot of parameters - beta_0^{KR}-beta_0^{MB} against beta_1
+plot(popularityCompare$differMB_KR, coef.est[,5],
+     main = ("Preference Comparison between MB and KR"),
+     xlab="Preference of MB - Preference of KR",ylab=("Price Sensitivity"),
+     xlim=c(-1.5,2),ylim=c(-6,-1), 
+     type='n')
+points(popularityCompare$differMB_KR[4],coef.est$price.coef[4],cex=20*seg.share[4],col='red',pch=16)
+points(popularityCompare$differMB_KR[6],coef.est$price.coef[6],cex=20*seg.share[6],col='red',pch=16)
+points(popularityCompare$differMB_KR[7],coef.est$price.coef[7],cex=20*seg.share[7],col='red',pch=16)
+points(popularityCompare$differMB_KR[8],coef.est$price.coef[8],cex=20*seg.share[8],col='red',pch=16)
+points(popularityCompare$differMB_KR[2],coef.est$price.coef[2],cex=20*seg.share[2],col='blue',pch=16)
+points(popularityCompare$differMB_KR[1],coef.est$price.coef[1],cex=20*seg.share[1],col='blue',pch=16)
+points(popularityCompare$differMB_KR[3],coef.est$price.coef[3],cex=20*seg.share[3],col='blue',pch=16)
+points(popularityCompare$differMB_KR[5],coef.est$price.coef[5],cex=20*seg.share[5],col='blue',pch=16)
+points(popularityCompare$differMB_KR[9],coef.est$price.coef[9],cex=20*seg.share[9],col='blue',pch=16)
+```
+
+### Step Four: Optimal Price and Profit Maximization 
+
+Given that MB is priced at 1.43, suppose we only launch KR first. The optimal price of KR=1.07 and the maximal profit of KR=294.4419. In this case, profitMB = 109.1702
+
+```{r}
+pricespace=seq(1,3,0.01)
+uc=0.5
+profit=1000*agg_choice2(pricespace,1.43,2,3)[,1]*(pricespace-uc)
+priceKRBest=pricespace[profit==max(profit)] 
+priceKRBest#best price for KR=1.07
+```
+
+```{r}
+max(profit)
+```
+Suppose next we do launch KB and now there are 3 products in the market. The optimal price of KB is 1.15 and the optimal price of KR is 1.19, with the max profit of Kiwi is 387.6119. In this case, profit of MB is 89.63174.
+
+We can see that as Kiwi launches KB, profit of Kiwi increased to $93 and the profit of Mango decreased to $19.5.
+
+The model justifies the launch of KB. From the perspective of consumer segmentation and product positioning, since beta0 represents the underlying popularity of a specific product, we can tell that the underlying popularity of KB is the highest among all of the 3 products in segment 1, 2, 5, 9, KR has the highest popularity in segment 4, 6, 7, 8 while MB has the highest popularity in segment 3 only(in which KB has the second highest popularity). Therefore, by selling KB to segment 1, 2, 5, 9, and KR to segment 4, 6, 7, 8, we can steal some market share from MB and also set a higher optimal price for KR (1.19) in this case. Now the inclusion of both KB and KR returns a higher profit of 387.61 than 294.44.
+
+```{r}
+#profit for MB
+profit_MB=1000*agg_choice2(1.43,priceKRBest,3,2)[,1]*(1.43-uc)  #109.1702  
+profit_MB
+```
+
+```{r}
+#GIVEN MB, look at KR, KB
+para=c(beta0KB,beta0KR,beta0MB,beta1)
+profit_KB_KR_seg=function(priceKB,priceKR, priceMB,para){
+  profitKB=1000*(agg_choice(priceKB,priceKR, priceMB)[,1]*(priceKB-0.5))
+  profitKR=1000*(agg_choice(priceKB,priceKR, priceMB)[,2]*(priceKR-0.5))
+  return(cbind(profitKB,profitKR))
+}
+
+aux=seq(1,3,0.01)
+#Because we search over two dimensions, create complete combination 
+#of the two prices
+pricespace=expand.grid(aux,aux)
+
+profitmat=matrix(0L,nrow(pricespace),1)
+for (i in 1:nrow(pricespace)){
+  profitmat[i]=sum(profit_KB_KR_seg(pricespace[i,1],pricespace[i,2],1.43,para))  
+}
+
+max(profitmat) #387.6119; 
+```
+
+```{r}
+priceKB_KRBest=pricespace[profitmat==max(profitmat)] #optimal price for KB is 1.15, optimal price for KR is 1.19
+priceKB_KRBest
+```
+
+```{r}
+#MB new profit
+
+profit_MB2=1000*agg_choice(1.43,priceKB_KRBest,priceKB_KRBest)[2]*(1.43-uc)  #244.3255 new MB profit
+profit_MB2 #89.63174
+```
+
+## Part Three: Strategic Response Facing Lower Rival Price
+In reality, Mango might be as smart as you are in that they might also realize 1.43 might not be optimal price. This is to say, in the previous question, we assumed that Mango maintains its price at 1.43 regardless of what we do. Suppose now instead that they react and set an optimal price against our new prices, and we need to set an optimal prices against their new price, and so on.
+
+Let’s see where this “pricing war” will be converged at and understand what is the strategic advantage of launching Kiwi Bubble now.
+
+```{r}
+#round 1
+#MANGO:
+pricespace=seq(0,2,0.01)
+uc=0.5
+profit=1000*agg_choice(pricespace,1.15,1.19)[,1]*(pricespace-uc)
+
+max(profit)  #170.9814
+```
+
+```{r}
+pricespace[profit==max(profit)] #0.96
+```
+
+```{r}
+#KB KR
+#Choose space of prices to search for the optimal price over
+aux=seq(1,3,0.01)
+#Because we search over two dimensions, create complete combination 
+#of the two prices
+pricespace=expand.grid(aux,aux)
+profitmat=matrix(0L,nrow(pricespace),1)
+for (i in 1:nrow(pricespace)){
+  profitmat[i]=sum(profit_KB_KR_seg(pricespace[i,1],pricespace[i,2],0.96,para))  
+}
+
+max(profitmat) #269.6908
+```
+
+```{r}
+pricespace[profitmat==max(profitmat)] #1.01 1.09
+```
+
+```{r}
+#round 2
+#MANGO:
+pricespace=seq(0,2,0.01)
+uc=0.5
+profit=1000*agg_choice(pricespace,1.01,1.09)[,1]*(pricespace-uc)
+
+max(profit)  #140.0129
+```
+
+
+```{r}
+pricespace[profit==max(profit)] #0.92
+```
+
+
+```{r}
+#KB KR
+#Choose space of prices to search for the optimal price over
+aux=seq(1,3,0.01)
+#Because we search over two dimensions, create complete combination 
+#of the two prices
+pricespace=expand.grid(aux,aux)
+profitmat=matrix(0L,nrow(pricespace),1)
+for (i in 1:nrow(pricespace)){
+  profitmat[i]=sum(profit_KB_KR_seg(pricespace[i,1],pricespace[i,2],0.92,para))  
+}
+
+max(profitmat) #256.2545
+```
+
+
+```{r}
+pricespace[profitmat==max(profitmat)] #1.00 1.08
+```
+
+
+```{r}
+#round 3
+#MANGO:
+pricespace=seq(0,2,0.01)
+uc=0.5
+profit=1000*agg_choice(pricespace,1.00,1.08)[,1]*(pricespace-uc)
+
+max(profit)  #137.4193
+```
+
+```{r}
+pricespace[profit==max(profit)] #0.92
+```
+
+```{r}
+#KB KR
+#Choose space of prices to search for the optimal price over
+aux=seq(1,3,0.01)
+#Because we search over two dimensions, create complete combination 
+#of the two prices
+pricespace=expand.grid(aux,aux)
+profitmat=matrix(0L,nrow(pricespace),1)
+for (i in 1:nrow(pricespace)){
+  profitmat[i]=sum(profit_KB_KR_seg(pricespace[i,1],pricespace[i,2],0.92,para))  
+}
+
+max(profitmat) #256.2545
+```
+
+```{r}
+pricespace[profitmat==max(profitmat)] #1.00 1.08
+```
+
+The “price war” ends at round 3 as the prices of both companies stay stable.
+
+## Conclusion:
+
+After three rounds of “pricing war”, the market becomes stable and the prices for MB, KB and KR are 0.92, 1, and 1.08 respectively. By introducing KB, the amount of profit of KR shift to KB is the same as within-Kiwi substitution. KB steals MB’s market share by 21% and the profit increases by 40%.
+
+In the case of the price war, revenue from KB is primarily coming from demand stealing from MB. This is in contrast to the no-price-war case, where stealing share accounts for less. Therefore, our original story that “Kiwi Bubbles should be positioned to steal demand from Mango with a low price” is reinforced in price-war environments.
+
+Those who do not buy any in the “no response” scenario are buying MB in the “price war” scenario - hence KB launch induces more demand stealing. In both cases, Kiwi has to set a low price for KR if it does not launch KB - as KR is the only product, serving only the niche market is not optimal.
+
+Limitations of the model: The formula for calculating cross elasticities suggests that a change in the price of a particular product has the same effect on the demand for any other products in the market. This is because the multinomial logit model is rather a simple model that does not allow so many complications. But in reality, a change in the price of a product should have a bigger effect on the demand of its close substitutes.
+
+
+
+
+
+
